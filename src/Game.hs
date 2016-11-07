@@ -2,6 +2,9 @@ module Game where
 
 import Common
 
+initialCardCount :: Int
+initialCardCount = 7
+
 initGame :: Int -> State
 
 -- TODO: Implement a method to initialize a new game given n players
