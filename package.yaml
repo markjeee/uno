@@ -10,6 +10,7 @@ dependencies:
   - ansi-terminal
   - random
   - random-shuffle
+  - optional-args
 
 library:
   exposed-modules:

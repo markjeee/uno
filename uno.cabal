@@ -15,6 +15,7 @@ library
     , ansi-terminal
     , random
     , random-shuffle
+    , optional-args
   exposed-modules:
       UnoI
       Common
@@ -34,6 +35,7 @@ executable uno
     , ansi-terminal
     , random
     , random-shuffle
+    , optional-args
     , uno
     , hpack
   other-modules:
@@ -53,6 +55,7 @@ test-suite test
     , ansi-terminal
     , random
     , random-shuffle
+    , optional-args
     , uno
     , hspec
   default-language: Haskell2010
