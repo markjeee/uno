@@ -44,7 +44,7 @@ shufflerSpecs :: Spec
 shufflerSpecs = describe "Shuffler" $ do
   it "Perform shuffling of cards" $ do
     pendingWith "Implement shuffleDeck function"
-    let gs = State { players = [ ], deck = fullDeck, d_stack = [ ] }
+    let gs = testState
     gs' <- shuffleDeck gs
     (deck gs') `shouldNotBe` (deck gs)
 
@@ -85,3 +85,9 @@ gameSpecs = describe "Game" $ do
 blueThree = Card { color = Blue, value = Three }
 redOne = Card { color = Red, value = One }
 johnnyCash = HPlayer { name = "Johnny", hand = [ blueThree, redOne ] }
+
+testState = State { players = [ ]
+                  , e_players = [ ]
+                  , deck = fullDeck
+                  , d_stack = [ ]
+                  , cur_player = noPlayer }
