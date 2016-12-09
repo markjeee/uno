@@ -5,6 +5,7 @@ import Data.List
 import Data.Maybe (fromJust, fromMaybe)
 
 import Common
+import Shuffler
 
 initialCardCount :: Int
 initialCardCount = 7
@@ -12,7 +13,7 @@ initialCardCount = 7
 initGame :: Int -> State
 
 -- TODO: Implement a method to initialize a new game given n players
-initGame n = State { players = [ ],
+initGame n = State { players = generateHumanPlayers n,
                      e_players = [ ],
                      deck = fullDeck,
                      d_stack = [ ],
@@ -24,7 +25,13 @@ initGameWithPlayers pa = gs' { players = clearHands pa } where
 
 -- TODO: Implement a method to setup the game
 setupGame :: State -> IO State
-setupGame gs = return (gs)
+setupGame gs = do
+  gs' <- shuffleDeck gs
+  gs' <- dealToAllPlayers initialCardCount gs' $ players gs
+  gs' <- discardNCards 1 gs'
+  return (gs { players = (players gs'),
+               deck = (deck gs'),
+               d_stack = (d_stack gs') })
 
 startGame :: State -> IO State
 startGame gs = pickNextAndPlay gs
@@ -62,13 +69,11 @@ playLoopNext gs next_action
 deckIsEmpty :: State -> Bool
 deckIsEmpty gs = null (deck gs)
 
--- TODO: Implement this function
 playerHasWon :: State -> Bool
-playerHasWon gs = False
+playerHasWon gs = playerIsOut gs
 
--- TODO: Implement this function
 playerIsOut :: State -> Bool
-playerIsOut gs = False
+playerIsOut gs = null (curHand gs)
 
 reverseAndPlay :: State -> IO State
 reverseAndPlay gs = do
@@ -139,22 +144,34 @@ takeFromHandWithAction card next_action gs = do
   gs' <- takeFromHand card gs
   return (next_action, gs')
 
--- TODO: Implement this function
 takeFromHand :: Card -> State -> IO State
-takeFromHand card gs = return gs
+takeFromHand card gs = do
+  gs' <- removeFromCurHand card gs
+  discardCards [ card ] gs'
 
 takeFromDeck :: State -> IO (Action, State)
 takeFromDeck gs = do
   gs' <- drawNCards 1 gs $ cur_player gs
   return (EndTurn, gs')
 
--- TODO: Implement this function
+-- Simple logic:
+-- [ p1, p2, _p3_, p4 ]
+-- [ p1, p2 ] ++ [ p3, p4] break
+-- [ p1, p2 ] ++ [ p3 ] ++ [ p4 ] drop
+-- [ p3 ] ++ [ p2, p1 ] ++ [ p4 ] reverse add
 reversePlayers :: State -> IO State
-reversePlayers gs = return gs
+reversePlayers gs = return (gs { players = reverse_pa }) where
+  cp = (cur_player gs)
+  (pa1, pa2) = break (== cp) (players gs)
+  pa3 = drop 1 pa2
+  reverse_pa = [ cp ] ++ (reverse pa1) ++ (reverse pa3)
 
--- TODO: Implement this function
 drawNCards :: Int -> State -> Player -> IO State
-drawNCards n gs player = return gs
+drawNCards n gs player = do
+  let (hand', deck') = splitAt n $ deck gs
+  player' <- updateHand player (hand player ++ hand')
+  gs' <- updatePlayer gs player player'
+  updateDeck gs' deck'
 
 updatePlayer :: State -> Player -> Player -> IO State
 updatePlayer gs p new_p = do
@@ -189,9 +206,10 @@ updateHand player h = return (player { hand = h })
 updateDeck :: State -> Deck -> IO State
 updateDeck gs deck' = return (gs { deck = deck' })
 
--- TODO: Implement this function
 reloadDeck :: State -> IO State
-reloadDeck gs = return gs
+reloadDeck gs = shuffleDeck gs' where
+  (d_stack', deck') = takeCards [ (topDCard gs) ] (d_stack gs)
+  gs' = gs { deck = (blackenCards deck'), d_stack = d_stack' }
 
 topDCard :: State -> Card
 topDCard gs = last (d_stack gs)
@@ -202,9 +220,14 @@ updateDiscardS gs d_stack' = return (gs { d_stack = d_stack' })
 updateCurPlayer :: State -> Player -> IO State
 updateCurPlayer gs player = return (gs { cur_player = player })
 
--- TODO: Implement this function
 getNextPlayer :: State -> Player
-getNextPlayer gs = head $ players gs
+getNextPlayer gs
+  | ((cur_player gs) == noPlayer) = head $ players gs
+  | otherwise = do
+      let i = fromJust $ elemIndex (cur_player gs) (players gs)
+      if (i + 1) >= (length $ players gs)
+        then head $ players gs
+        else (players gs) !! (i + 1)
 
 pickNextPlayer :: State -> IO State
 pickNextPlayer gs = updateCurPlayer gs $ getNextPlayer gs
@@ -212,9 +235,39 @@ pickNextPlayer gs = updateCurPlayer gs $ getNextPlayer gs
 playCurrentPlayer :: State -> (Action, Card)
 playCurrentPlayer gs = useSimpleStrategy gs (topDCard gs) (curHand gs)
 
--- TODO: Implement this function
 useSimpleStrategy :: State -> Card -> Hand -> (Action, Card)
-useSimpleStrategy gs dcard hand = (TakeFromDeck, noCard)
-
+useSimpleStrategy gs dcard hand
+  | colorInHand (color dcard) hand = do
+      (UseCard, fromMaybe noCard $ getCardWithColor (color dcard) hand)
+  | isNumberCard dcard && valueInHand (value dcard) hand = do
+      (UseCard, fromMaybe noCard $ getCardWithValue (value dcard) hand)
+  | wildcardInHand hand = do
+      (UseCard, colorizeWildcard Red (fromMaybe noCard $ getWildcard hand))
+  | otherwise = (TakeFromDeck, noCard)
 
 -- ADD extra codes after this line, so it's easy to rebase or merge code changes in Git --
+
+generateHumanPlayers :: Int -> [ Player ]
+generateHumanPlayers n
+  | (n > 0) = [ HPlayer {name = "Human " ++ show n, hand = [ ]} ] ++ generateHumanPlayers (n-1)
+  | otherwise = [ ]
+
+dealToAllPlayers :: Int -> State -> [ Player ] -> IO State
+dealToAllPlayers n gs [] = return (gs)
+dealToAllPlayers n gs ps = do
+  let (ps', ps'') = splitAt 1 ps
+  gs' <- drawNCards n gs $ head ps'
+  dealToAllPlayers n gs' ps''
+
+discardNCards :: Int -> State -> IO State
+discardNCards n gs = do
+  let first_number_card = head [ c | c <- deck gs, isNumberCard c ]
+  let (d_cards', deck') = takeCards [ first_number_card ] (deck gs)
+  gs' <- updateDeck gs deck'
+  discardCards d_cards' gs'
+
+removeFromCurHand :: Card -> State -> IO State
+removeFromCurHand card gs
+  | isChangeColCards card = removeFromCurHand (colorBlack card) gs
+  | otherwise = updateCurHand gs hand' where
+      (d_cards, hand') = takeCards [ card ] (curHand gs)
